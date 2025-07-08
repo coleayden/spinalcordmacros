@@ -2,7 +2,7 @@
 date 2023-04-20
 For 3-channel images wherein 
 Ch1=DAPI, Ch2=GFP, 
-Ch3=Olig2 or Aspa (or other stain less selective than GFP)*/
+Ch3=Aspa (or other stain less selective than GFP)*/
 
 //////USE INSTRUCTIONS//////
 //To convert .txt to .ijm//
