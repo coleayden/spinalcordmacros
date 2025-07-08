@@ -8,4 +8,4 @@ QA image is generated showing counted cells with bare outlines.
 To calculate non-lesion white matter density, of whole cord cell density was subtracted from gray matter and total lesions densities (this was done due to ease at outlining gray matter compared to going around lesions for non-lesion white matter).
 With this approach all lesions would need to be outlined to correctly quantify total non-lesion white matter density.
 Single region of non-lesion white matter could also be outlined with minimal adjustment of macro if desired.
-Resolution of 20x images for all macros was set a 0.65pixel/micron and may need to be adjusted.
+Resolution of 20x images used for all macros was 0.65pixel/micron and may need to be adjusted.
