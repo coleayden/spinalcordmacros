@@ -1,0 +1,197 @@
+/*Written using ImageJ2/FIJI Version 2.9.0/1.53t, Build a33148d777
+date 2023-09-06
+For 3-channel images wherein 
+Ch1=DAPI, Ch2=X
+Ch3=NF 
+
+//////USE INSTRUCTIONS//////
+//To convert .txt to .ijm//
+/*right click .txt file -> Get Info -> Name & Extension: replace '.txt' with '.ijm'*/
+//To install//
+/*open ImageJ -> Plugins -> Install... -> select this macro in .ijm format ->
+save in folder, eg 'Analyze' -> restart ImageJ*/
+//To use//
+/*Open image to analyze -> Plugins -> Analyze -> select macro
+-Results will appear in a pop-up "Summary" or "Results" window and will append during processing*/
+
+
+//////VARIABLES//////
+ch3subBackgroundValue = 10;
+
+//////SET-UP//////
+//set scale and measurements, open ROI Manager
+run("Set Scale...", "distance=1 known=0.650 unit=micron global");
+run("8-bit");
+getDimensions(width, height, channels, slices, frames);
+Width = width;
+Height = height;
+
+run("Labels...", "color=white font=12");
+setForegroundColor(255, 255, 255);
+run("Options...", "iterations=1 count=1 black");
+setBatchMode(false); //comment out for slow testing
+run("ROI Manager...");
+setBatchMode(true); //comment out for slow testing
+roiManager("Centered", "false");
+roiManager("UseNames", "true");
+roiManager("Show All without labels");
+roiManager("Show None");
+
+//////DUPLICATE//////
+//save original title and rename for code
+title = getTitle();
+dir = getDirectory("image");
+rename("Sample");
+
+//Duplicate original image 
+run("Duplicate...", "duplicate stack");
+
+
+//////PRE-PROCESSING FOR COUNTS//////
+
+run("Stack to Images");
+
+selectWindow("Sample-1-0003");
+run("Duplicate...", "title=Sample-1-0003-1");
+
+//Threshold Ch3
+selectWindow("Sample-1-0003-1");
+run("Subtract Background...", "rolling="+ch3subBackgroundValue+"");
+setAutoThreshold("Default dark");
+
+//run("Threshold...");
+setThreshold(20, 255, "raw");
+
+//setThreshold(20, 255);
+run("Convert to Mask");
+rename("Ch3+Threshold");
+
+//////OUTLINE ROIs//////
+
+//////OUTLINE LESIONS//////
+selectWindow("Sample");
+setBatchMode("show");
+
+lesionPresent = false;
+multipleLesionsPresent = false;
+firstLesionIndex = roiManager("count"); //For looping later
+
+roiManager("Show None");roiManager("Show All");roiManager("Show None");
+setTool("Polygon");
+do {
+        waitForUser(title + "\nGo to DAPI and NF channel,\nOutline lesions avoid lesions with high background NF,\nand pressing 't' after each lesion.\nThen click OK.");
+roiManager("deselect");
+
+lastLesionIndex = roiManager("count");
+
+if (roiManager("count") != firstLesionIndex) {
+	lesionPresent = true;
+}
+if (lastLesionIndex > firstLesionIndex) {
+	multipleLesionsPresent = true;
+}
+
+
+//////COUNT CELLS IN EACH REGION//////
+
+roiNamesArray = newArray();
+roiAreasArray = newArray();
+sourceImageArray = newArray();
+
+
+//Count cells in individual lesions
+if (lesionPresent) {
+	for (i = firstLesionIndex; i < roiManager("count"); i++) {
+	lesionName = "L" + i;
+	roiOutputArray = CountCells(i, lesionName, 0);
+	roiNamesArray = Array.concat(roiNamesArray, roiOutputArray[0]);
+	roiAreasArray = Array.concat(roiAreasArray, roiOutputArray[1]);
+	sourceImageArray = Array.concat(sourceImageArray, title);
+	}
+}
+/////FUNCTIONS//////
+//count spots in thresholded and masked images
+function CountCells(roiIndex, roiName, showOutput) {
+	run("Set Measurements...", "area redirect=None decimal=3");
+	
+	if (showOutput == 1) {
+		show = "Bare Outlines";
+	} else {
+		show = "Nothing";
+	}
+	
+	roiManager("Select", roiIndex);
+	roiManager("Rename", roiName);
+	
+	run("Measure");
+	roiArea = getResult("Area", nResults-1);
+	
+	
+	roiNameAreaArray = newArray(roiName, roiArea);
+
+    selectWindow("Ch3+Threshold");
+	roiManager("Select", roiIndex);
+	run("Analyze Particles...", "size=1-500 circularity=0.5-1.0 show=["+show+"] summarize");	
+	if (showOutput == 1) {
+		roiManager("deselect");roiManager("Show All");roiManager("Show None");
+			
+	}	
+	return roiNameAreaArray;
+}
+
+//Add ROI, Area, and Source Image to Summary table and delete unneeded columns
+Table.setColumn("ROI", roiNamesArray, "Summary");
+Table.setColumn("ROI Area", roiAreasArray, "Summary");
+Table.setColumn("Source Image", sourceImageArray, "Summary");
+
+Table.deleteColumn("Total Area", "Summary");
+Table.deleteColumn("Average Size", "Summary");
+Table.deleteColumn("%Area", "Summary");
+
+
+//////CALCULATE COUNTS PER mm^2//////
+Table.rename("Summary", "Results");
+
+roiDensityArray = newArray();
+for (i = 0; i < nResults; i++) {
+	roiCount = getResult("Count", i);
+	roiArea = getResult("ROI Area", i);
+	roiDensity = roiCount / roiArea * 1000000;
+	roiDensityArray = Array.concat(roiDensityArray, roiDensity);
+}
+
+Table.setColumn("Count/mm^2", roiDensityArray, "Results");
+
+
+
+//////MAKE QA IMAGE//////
+
+selectWindow("Sample");
+close();
+
+selectWindow("Ch3+Threshold");
+roiManager("deselect");roiManager("Show All");roiManager("Show None");
+selectWindow("Ch3+Threshold");
+run("Analyze Particles...", "size=1-500 circularity=0.5-1.0 show=[Bare Outlines]");
+run("Invert");
+rename("Drawing of Ch3+");	
+
+selectWindow("Sample-1-0001");
+rename("Ch1 original");
+
+selectWindow("Sample-1-0002");
+rename("Ch2 original");
+
+selectWindow("Sample-1-0003");
+run("Duplicate...", "title=Sample-1-0003-2");
+
+selectWindow("Sample-1-0003");
+rename("Ch3 original");
+
+run("Merge Channels...", "c1=[Drawing of Ch3+] c4=Sample-1-0003-2");
+rename("Ch3+Counts");
+
+run("Images to Stack", "name=_QA use");
+rename(title+"_QA");
+
+setBatchMode("show");
