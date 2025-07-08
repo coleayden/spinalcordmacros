@@ -1,8 +1,9 @@
 /*Written using ImageJ2/FIJI Version 2.9.0/1.53t, Build a33148d777
-date 2024-06-04
+date 2024-06-05
 For 3-channel images wherein 
-Ch1=DAPI, Ch2=GFP, 
-Ch3=Aspa (or other stain less selective than GFP)*/
+Ch1=GFP, 
+Ch2=Aspa,
+Ch3=lesions*/
 
 //////USE INSTRUCTIONS//////
 //To convert .txt to .ijm//
@@ -13,10 +14,10 @@ save in folder, eg 'Analyze' -> restart ImageJ*/
 //To use//
 /*Open image to analyze -> Plugins -> Analyze -> select macro
 -Results will appear in a pop-up "Summary" or "Results" window and will append during processing*/
-
+/*When open probability select Hyperstack, color mode Grayscale, autoscale not checked
 
 //////SET-UP//////
-//set scale and measurements, open ROI Manager
+//set scale and measurements
 run("Set Scale...", "distance=1 known=0.650 unit=micron global");
 run("8-bit");
 getDimensions(width, height, channels, slices, frames);
@@ -26,7 +27,7 @@ Height = height;
 run("Labels...", "color=white font=12");
 setForegroundColor(255, 255, 255);
 run("Options...", "iterations=1 count=1 black do=Nothing");
-setBatchMode(false); //comment out for slow testing
+setBatchMode(false); 
 run("ROI Manager...");
 setBatchMode(true); //comment out for slow testing
 roiManager("Centered", "false");
@@ -34,57 +35,67 @@ roiManager("UseNames", "true");
 roiManager("Show All without labels");
 roiManager("Show None");
 
+
 //////DUPLICATE//////
 //save original title and rename for code
 title = getTitle();
-dir = getDirectory("image");
+path = getDirectory("image");
 rename("Sample");
+selectWindow("Sample");
+run("Make Subset...", "channels=1,2,4");
+selectWindow("Sample");
+close();
 
 //Duplicate original image 
+selectWindow("Sample-1");
 run("Duplicate...", "duplicate stack");
-
 
 //////PRE-PROCESSING FOR COUNTS//////
 
-run("Stack to Images");
+selectWindow("Sample-1");
+run("Split Channels");
 
-selectWindow("Sample-1-0001");
+selectWindow("C3-Sample-1");
 close();
 
-//Threshold Ch2
-selectWindow("Sample-1-0002");
+//Threshold Ch1
+selectWindow("C1-Sample-1");
 run("Auto Threshold", "method=Moments white");
-rename("Ch2+");
+rename("GFP");
 
-//Threshold Ch3
-selectWindow("Sample-1-0003");
+//Threshold Ch2
+selectWindow("C2-Sample-1");
 run("Auto Threshold", "method=Moments white");
-rename("Ch3+");
+rename("Aspa");
+
+//Combine Ch1 and Ch2 for count both
+imageCalculator("Add create", "GFP","Aspa");
+rename("GFPandAspa");
 
 
 //////OUTLINE ROIs//////
-selectWindow("Sample");
+selectWindow("Sample-1-1");
 setBatchMode("show");
 setTool("Polygon");
 do {
-	waitForUser("Go to channel 1.\nOutline entire section, pressing 't' when done.\nThen click OK.");
+	waitForUser("Go to channel 3.\nOutline entire section, pressing 't' when done.\nThen click OK.");
 } while (roiManager("count") == 0 || roiManager("count") > 1);
 
 roiManager("select", 0);
 roiManager("rename", "Whole Section"); 
 
 
-//////OUTLINE GRAY MATTER//////
-selectWindow("Sample");
+//////OUTLINE NON-LESION WHITE MATTER//////
+selectWindow("Sample-1-1");
 setBatchMode("show");
 roiManager("Show None");roiManager("Show All");roiManager("Show None");
 setTool("Polygon");
 do {
-	waitForUser("Go to channel 3.\nOutline gray matter and press 't',\nthen click OK");
+	waitForUser("Go to channel 3.\nOutline area of non-lesion white matter and press 't',\nthen click OK");
 } while (roiManager("count") == 1 || roiManager("count") > 2);
 
 roiManager("select", 1);
-roiManager("rename", "Gray Matter");
+roiManager("rename", "NLWM");
 
 
 //////OUTLINE LESIONS//////
@@ -95,7 +106,7 @@ firstLesionIndex = roiManager("count"); //For looping later
 roiManager("Show None");roiManager("Show All");roiManager("Show None");
 setTool("Polygon");
 do {
-        waitForUser(title + "\nGo to channel 1,\nIf present, outline lesions,\nand pressing 't' after each lesion.\nThen click OK.");
+        waitForUser("Go to channel 3,\nIf present, outline lesions,\nand pressing 't' after each lesion.\nThen click OK.");
 roiManager("deselect");
 
 lastLesionIndex = roiManager("count")-1;
@@ -110,22 +121,19 @@ if (lastLesionIndex > firstLesionIndex) {
 
 //////COUNT CELLS IN EACH REGION//////
 
+
 roiNamesArray = newArray();
 roiAreasArray = newArray();
-sourceImageArray = newArray();
-
 
 //Count cells in entire section
 roiOutputArray = CountCells(0, "Whole Section", 0);
-roiNamesArray = Array.concat(roiNamesArray, roiOutputArray[0], roiOutputArray[0]);
-roiAreasArray = Array.concat(roiAreasArray, roiOutputArray[1], roiOutputArray[1]);
-sourceImageArray = Array.concat(sourceImageArray, title, title);
+roiNamesArray = Array.concat(roiNamesArray, roiOutputArray[0], roiOutputArray[0], roiOutputArray[0]);
+roiAreasArray = Array.concat(roiAreasArray, roiOutputArray[1], roiOutputArray[1], roiOutputArray[1]);
 
-//Count cells in gray matter
-roiOutputArray = CountCells(1, "Gray Matter", 0);
-roiNamesArray = Array.concat(roiNamesArray, roiOutputArray[0], roiOutputArray[0]);
-roiAreasArray = Array.concat(roiAreasArray, roiOutputArray[1], roiOutputArray[1]);
-sourceImageArray = Array.concat(sourceImageArray, title, title);
+//Count cells in NLWM
+roiOutputArray = CountCells(1, "NLWM", 0);
+roiNamesArray = Array.concat(roiNamesArray, roiOutputArray[0], roiOutputArray[0], roiOutputArray[0]);
+roiAreasArray = Array.concat(roiAreasArray, roiOutputArray[1], roiOutputArray[1], roiOutputArray[1]);
 
 
 //Count cells in individual lesions
@@ -133,21 +141,15 @@ if (lesionPresent) {
 	for (i = firstLesionIndex; i < roiManager("count"); i++) {
 	lesionName = "L" + i-2;
 	roiOutputArray = CountCells(i, lesionName, 0);
-	roiNamesArray = Array.concat(roiNamesArray, roiOutputArray[0], roiOutputArray[0]);
-	roiAreasArray = Array.concat(roiAreasArray, roiOutputArray[1], roiOutputArray[1]);
-	sourceImageArray = Array.concat(sourceImageArray, title, title);
+	roiNamesArray = Array.concat(roiNamesArray, roiOutputArray[0], roiOutputArray[0], roiOutputArray[0]);
+	roiAreasArray = Array.concat(roiAreasArray, roiOutputArray[1], roiOutputArray[1], roiOutputArray[1]);
 	}
 }
 /////FUNCTIONS//////
-//count spots in thresholded and masked images
+//count spots in thresholded images
 function CountCells(roiIndex, roiName, showOutput) {
 	run("Set Measurements...", "area redirect=None decimal=3");
-	
-	if (showOutput == 1) {
-		show = "Bare Outlines";
-	} else {
-		show = "Nothing";
-	}
+
 	
 	roiManager("Select", roiIndex);
 	roiManager("Rename", roiName);
@@ -158,29 +160,35 @@ function CountCells(roiIndex, roiName, showOutput) {
 	
 	roiNameAreaArray = newArray(roiName, roiArea);
 	
-        selectWindow("Ch2+");
+        selectWindow("GFP");
 	roiManager("Select", roiIndex);
-	run("Analyze Particles...", "size=20-Infinity pixel circularity=0.2-1.0 show=["+show+"] summarize");	
+	run("Analyze Particles...", "size=20-Infinity pixel circularity=0.1-1.0 summarize");	
 	if (showOutput == 1) {
 		roiManager("deselect");roiManager("Show All");roiManager("Show None");
 		run("Invert");	
 	}	
 	
-	selectWindow("Ch3+");
+	selectWindow("Aspa");
 	roiManager("Select", roiIndex);
-	run("Analyze Particles...", "size=20-Infinity pixel circularity=0.2-1.0 show=["+show+"] summarize");
+	run("Analyze Particles...", "size=20-Infinity pixel circularity=0.1-1.0 summarize");
 	if (showOutput == 1) {
 		roiManager("deselect");roiManager("Show All");roiManager("Show None");
 		run("Invert");	
 	}
 	
+        selectWindow("GFPandAspa");
+	roiManager("Select", roiIndex);
+	run("Analyze Particles...", "size=20-Infinity pixel circularity=0.1-1.0 summarize");	
+	if (showOutput == 1) {
+		roiManager("deselect");roiManager("Show All");roiManager("Show None");
+		run("Invert");	
+	}
 	return roiNameAreaArray;
 }
 
-//Add ROI, Area, and Source Image to Summary table and delete unneeded columns
+//Add ROI and Area to Summary table and delete unneeded columns
 Table.setColumn("ROI", roiNamesArray, "Summary");
 Table.setColumn("ROI Area", roiAreasArray, "Summary");
-Table.setColumn("Source Image", sourceImageArray, "Summary");
 
 Table.deleteColumn("Total Area", "Summary");
 Table.deleteColumn("Average Size", "Summary");
@@ -204,52 +212,60 @@ Table.setColumn("Count/mm^2", roiDensityArray, "Results");
 //////MAKE QA IMAGE//////
 
 
-selectWindow("Ch3+");
+selectWindow("Aspa");
 roiManager("Select", 0);
-run("Analyze Particles...", "size=20-Infinity pixel circularity=0.2-1.0 show=[Bare Outlines]");
+run("Analyze Particles...", "size=20-Infinity pixel circularity=0.1-1.0 show=[Bare Outlines]");
 roiManager("deselect");roiManager("Show All");roiManager("Show None");
 run("Invert");
-rename("Drawing of Ch3+");	
+rename("Drawing of Aspa");	
 	
 	
-selectWindow("Ch2+");
+selectWindow("GFP");
 roiManager("Select", 0);
-run("Analyze Particles...", "size=20-Infinity pixel circularity=0.2-1.0 show=[Bare Outlines]");	
+run("Analyze Particles...", "size=20-Infinity pixel circularity=0.1-1.0 show=[Bare Outlines]");	
 roiManager("deselect");roiManager("Show All");roiManager("Show None");
 run("Invert");	
-rename("Drawing of Ch2+");
- 
+rename("Drawing of GFP");
+
+
+selectWindow("GFPandAspa");
+roiManager("Select", 0);
+run("Analyze Particles...", "size=20-Infinity pixel circularity=0.1-1.0 show=[Bare Outlines]");	
 roiManager("deselect");roiManager("Show All");roiManager("Show None");
+run("Invert");	
+rename("Drawing of GFPandAspa");
 
 
-selectWindow("Sample");
-run("Stack to Images");
+roiManager("deselect");roiManager("Show All");roiManager("Show None");
+selectImage("GFP");
+close;
+selectImage("Aspa");
+close;
 
-selectWindow("Sample-0001");
-rename("Ch1 original");
+selectWindow("Sample-1-1");
+run("Split Channels");
 
-selectWindow("Sample-0002");
-run("Duplicate...", "title=Sample-0002 1");
+selectWindow("C3-Sample-1-1");
+rename("Lesion original");
 
-selectWindow("Sample-0002");
-run("Duplicate...", "title=Sample-0002 2");
 
-selectWindow("Sample-0002");
-rename("Ch2 original");
+run("Merge Channels...", "c1=[Drawing of Aspa] c4=C2-Sample-1-1");
+rename("Aspa+Counts");
 
-selectWindow("Sample-0003");
-run("Duplicate...", "title=Sample-0003 1");
+run("Merge Channels...", "c1=[Drawing of GFP] c4=C1-Sample-1-1");
+rename("GFP+Counts");
 
-selectWindow("Sample-0003");
-rename("Ch3 original");
+run("Merge Channels...", "c1=[Drawing of GFPandAspa] c4=GFPandAspa");
+rename("GFPAspaCounts");
 
-run("Merge Channels...", "c1=[Drawing of Ch3+] c4=Sample-0003 1");
-rename("Ch3+Counts");
-
-run("Merge Channels...", "c1=[Drawing of Ch2+] c4=Sample-0002 2");
-rename("Ch2+Counts");
-
-run("Images to Stack", "name=_QA use");
+run("Images to Stack", "name=title use");
 rename(title+"_QA");
-
 setBatchMode("show");
+
+roiManager("reset");
+selectWindow("ROI Manager");
+run("Close");
+
+
+/// whenfinished save results and run("Fresh Start");
+
